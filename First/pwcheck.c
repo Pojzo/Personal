@@ -4,7 +4,7 @@
 
 // konstanty k normalnej ulohe
 #define DEFAULT_PARAMS 3   // pocet argumentov bez --stats
-#define MAX_ARGUMENTS     4   // maximalny pocet argumentov na vstupe
+#define MAX_ARGUMENTS  4   // maximalny pocet argumentov na vstupe
 #define BUFFER_LENGTH  50  // maximalna dlzka hesla na vstupe
 #define MAX_LEVEL      4   // maximalna hodnota argumentu 'level'
 #define STATS_ARGUMENT "--stats" // volitelny argument
@@ -45,15 +45,16 @@ bool IsDigit(char);             // funkcia vrati true ak vstupny char je cislica
 bool IsSpecialCharacter(char);  // funkcia vrati true ak char je specialny charakter (podla definicie v zadani)
 
 // Kontrola hesla na vstupe
-bool ContainsUpperCase(const char*, unsigned);        // funkcia vrati true ak vstupny string obsahuje velke pismeno
-bool ContainsLowerCase(const char*, unsigned);        // funkcia vrati true ak vstupny string obsahuje male pismeno
-bool ContainsDigit(const char*, unsigned);            // funkcia vrati true ak vstupny string obsahuje cislicu
-bool ContainsSpecialCharacter(const char*, unsigned); // funkcia vrati ak string obsahuje specialny charakter (podla definicie v zadani)
+bool ContainsUpperCase(const char*, unsigned);          // funkcia vrati true ak string obsahuje velke pismeno
+bool ContainsLowerCase(const char*, unsigned);          // funkcia vrati true ak string obsahuje male pismeno
+bool ContainsDigit(const char*, unsigned);              // funkcia vrati true ak string obsahuje cislicu
+bool ContainsSpecialCharacter(const char*, unsigned);   // funkcia vrati true ak string obsahuje specialny charakter (podla definicie v zadani)
+bool NRepeatingCharacters(const char*, unsigned, unsigned); // funkcia vrati true ak string neobsahuje sekvenciu rovnakych znakov dlzky aspon n
 
 // Kontrola jednotlivych pravidiel
-bool FirstRule(const char*, unsigned);
+bool FirstRule(const char*, unsigned);            
 bool SecondRule(const char*, unsigned, unsigned);
-bool ThirdRule(const char*, unsigned);
+bool ThirdRule(const char*, unsigned, unsigned);
 bool FourthRule(const char*, unsigned);
 
 // Hlavny beh programu
@@ -170,6 +171,10 @@ bool StringsEqual(const char* s1, const char* s2) {
     } 
     return true;
 }
+
+void RemoveNewLine(char* string, unsigned string_len) {
+    string[string_len -1] = '\0';
+}
  
 bool CharUpper(char c) {
     return ((c >= 66) && (c <= 90)); 
@@ -188,6 +193,7 @@ bool IsSpecialCharacter(char c) {
 }
 
 bool ContainsUpperCase(const char* string, unsigned str_len) {
+    // iterujeme cez string na kontrolu kazdeho charakteru
     for(unsigned i=0; i<str_len; i++) {
         if (CharUpper(string[i])) {
             return true;
@@ -197,6 +203,7 @@ bool ContainsUpperCase(const char* string, unsigned str_len) {
 }
 
 bool ContainsLowerCase(const char* string, unsigned str_len) {
+    // iterujeme cez string na kontrolu kazdeho charakteru
     for(unsigned i=0; i<str_len; i++) {
         if (CharLower(string[i])) {
             return true;
@@ -206,6 +213,7 @@ bool ContainsLowerCase(const char* string, unsigned str_len) {
 }
 
 bool ContainsDigit(const char* string, unsigned str_len) {
+    // iterujeme cez string na kontrolu kazdeho charakteru
     for(unsigned i=0; i<str_len; i++) {
         if (IsDigit(string[i])) {
             return true;
@@ -215,11 +223,34 @@ bool ContainsDigit(const char* string, unsigned str_len) {
 }
 
 bool ContainsSpecialCharacter(const char* string, unsigned str_len) {
+    // iterujeme cez string na kontrolu kazdeho charakteru
     for(unsigned i=0; i<str_len; i++) {
         if (IsSpecialCharacter(string[i])) {
             return true;
         }
     }
+    return false;
+}
+
+bool NRepeatingCharacters(const char* string, unsigned str_len, unsigned x) {
+    if (str_len == 0) {
+        return false;
+    }
+    unsigned longest_seq = 1; // najdlhsia sekvencia na zaciatku musi byt jedna, lebo kontrolujeme od drueho charakteru
+    char current_char = string[0]; // aktualny charakter
+    // iterujeme cez string na kontrolu kazdeho charakteru
+    for(unsigned i=1; i<str_len; i++) {
+        if (string[i] == current_char) {
+            ++longest_seq; // ak s aktualny znak rovna tomu predchadzajucemu, zvacsime najdlhsiu sekvenciu o 1
+        }    
+        else {
+            longest_seq = 1; // ak sa nerovna, resetujeme obidve premenne
+            current_char = string[i];
+        }
+        if (longest_seq == x) {
+            return true;
+        }
+    } 
     return false;
 }
 
@@ -229,8 +260,15 @@ bool FirstRule(const char* password, unsigned password_len) {
 
 bool SecondRule(const char* password, unsigned password_len, unsigned x) {
     unsigned passed = 0;
+    // skontrolujeme vsetky podmienky
     passed = ContainsUpperCase(password, password_len) + ContainsLowerCase(password, password_len) + ContainsDigit(password, password_len) + ContainsSpecialCharacter(password, password_len);
+    // ak hesla splna x alebo viac podmienok, tak preslo druhym pravidlom
     return passed >= x;
+}
+
+bool ThirdRule(const char* password, unsigned password_len, unsigned x) {
+    // returnujeme negaciu funkcie NRepeatingCharacters.. ak sa tam nachadza sekvencia x charakterov, tak heslo pravidlom nepreslo
+    return (!NRepeatingCharacters(password, password_len, x));
 }
 
 void Print(bool upper, bool lower, bool digit, bool special) {
@@ -240,9 +278,6 @@ void Print(bool upper, bool lower, bool digit, bool special) {
     printf("Special: %s\n", special ? "True" : "False");
 }
 
-void RemoveNewLine(char* string, unsigned string_len) {
-    string[string_len -1] = '\0';
-}
 
 void CheckPasswords(struct Arguments arguments) {
     char buffer[BUFFER_LENGTH];
@@ -257,6 +292,9 @@ void CheckPasswords(struct Arguments arguments) {
 
         if (arguments.level >= 2) {
             password_passed = password_passed && SecondRule(buffer, password_length, arguments.param);
+        }
+        if (arguments.level >= 3) {
+            password_passed = password_passed && ThirdRule(buffer, password_length, arguments.param);
         }
         if (password_passed) {
             printf("%s\n", buffer);

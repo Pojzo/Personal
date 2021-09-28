@@ -1,4 +1,1 @@
-Password
-Heslo123
-Mojevelmidlouhehesloscislem0
-IZP2021:fit@vut.cz
+Argument 'level' musi mat hodnotu 1 - 4

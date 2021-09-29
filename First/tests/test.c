@@ -4,7 +4,7 @@
 #include <stdbool.h>
 
 #define FILENAME_LENGTH 9
-#define BUFFER_LENGTH 50
+#define BUFFER_LENGTH 100
 #define RESET "\033[0m"
 #define GREEN "\033[32m"
 #define RED   "\033[31m"

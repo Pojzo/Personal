@@ -2,14 +2,16 @@
 #include <stdlib.h>
 #include <stdbool.h> 
 
-#define min(a, b) ((a > b) ? a : b
+#define min(a, b) ((a < b) ? a : b)
+#define max(a, b) ((a > b) ? a : b)
 
 // konstanty k normalnej ulohe
-#define DEFAULT_ARGUMENTS 3   // pocet argumentov bez --stats
-#define MAX_ARGUMENTS  4   // maximalny pocet argumentov na vstupe
-#define BUFFER_LENGTH  50  // maximalna dlzka hesla na vstupe
-#define MAX_LEVEL      4   // maximalna hodnota argumentu 'level'
-#define STATS_ARGUMENT "--stats" // volitelny argument
+#define DEFAULT_ARGUMENTS 3         // pocet argumentov bez --stats
+#define MAX_ARGUMENTS     4         // maximalny pocet argumentov na vstupe
+#define BUFFER_LENGTH     100       // maximalna dlzka hesla na vstupe
+#define MAX_LEVEL         4         // maximalna hodnota argumentu 'level'
+#define STATS_ARGUMENT    "--stats" // volitelny argument
+#define NUM_ASCII_CHARACTERS  128
 
 // konstanty k premiovej ulohe 
 #define LEVEL_ARGUMENT "-l"      // volitelny prepinac v premiovej ulohe
@@ -26,11 +28,24 @@ struct Arguments  {
 
 // struct ktory sluzi na ukladanie statistik o heslach ak je specifikovany --stats
 struct Stats {
-    unsigned unique_chars;
     unsigned min_length;
     unsigned num_words;
+    unsigned total_length;
+    unsigned distinct_chars;
     float average_length;
+    bool chars[NUM_ASCII_CHARACTERS];
+    /* chars je pole boolov, ktore ma na zaciatku na vsetkych indexoch false
+       pocas behu programu nastavujeme chars[char] = true, kde char je charakter zo zadaneho hesla
+       napriklad: heslo, vo funkci UpdateStats sa stane -> stats.chars[104] = true;  'h'
+                                                           stats.chars[101] = true;  'e'
+                                                           stats.chars[115] = true;  's' 
+                                                           stats.chars[108] = true;  'l'
+                                                           stats.chars[111] = true;  'o'
+
+       na konci iba spocitame kolko boolov z stats.chars je true - pocet roznych znakov v hesle
+     */
 };
+
 
 // prototypy funkcii
 
@@ -42,7 +57,6 @@ bool CorrectNumberOfArguments(int argc);      // funkcia vrati true ak je na vst
 bool HandleArguments();                       // funkcia vrati true ak su argumenty na vstupe v spravnom formate a so spravnymi hodnotami
 
 struct Arguments CreateArguments(int, const char**);
-struct Stats CreateStats();
 
 // Pomocne funkcie 
 unsigned StringLength(const char*);               // funkcia vrati dlzku vstupneho stringu
@@ -69,15 +83,20 @@ bool SecondRule(const char*, unsigned, unsigned);
 bool ThirdRule(const char*, unsigned, unsigned);
 bool FourthRule(const char*, unsigned);
 
+// Statistika
+struct Stats CreateStats();                             // funkcia vrati struct stats s inicializovanymi hodnotami
+void UpdateStats(struct Stats*, const char*, unsigned); // funkcia aktualizuje statistiku s novym heslom
+void CountDistinctCharacters(struct Stats*);            // funkcia spocita pocit roznych charakterov zo vsetkych hesiel a updatne struct stats
+void PrintStats(struct Stats);                          // funkcia vypise statistiky
+
 // Hlavny beh programu
-char* ReadPasword(char*); // funkcia vrati jedno heslo (jeden riadok) zo vstupu
-void CheckPasswordsWStats(struct Arguments);   // funkcia nacita po jednom hesla zo vstupu a updatuje pri tom statistiky 
-void CheckPasswordsWOStats(struct Arguments);  // funckia natica po jednom hesla zo vstupu bez toho aby robil statistiky
+bool PasswordPassed(const char*, unsigned, unsigned, unsigned); // funkcia vrati true ak heslo preslo pravidlami
+void CheckPasswordsWStats(struct Arguments);                    // funkcia nacita po jednom hesla zo vstupu a updatuje pri tom statistiky 
+void CheckPasswordsWOStats(struct Arguments);                   // funckia natica po jednom hesla zo vstupu bez toho aby robil statistiky
+
 
 int main(int argc, const char **argv) {
     // Ak nieco nie je v poriadku s argumentami z prikazoveho riadku, program ukoncime
-    printf("%d\n", min(5, 10));
-    return 0;
     if (!HandleArguments(argc, argv)) {
         return 1;
     }
@@ -100,7 +119,7 @@ bool CorrectLevelArgument(const char* level) {
     }
     int level_int = atoi(level);
     // ak sa argument level nachadza v danom rozmedzi, tak je validny
-    if (!((level_int > 0) && (level_int < MAX_LEVEL))) {
+    if (!((level_int > 0) && (level_int <= MAX_LEVEL))) {
         printf("Argument 'level' musi mat hodnotu 1 - %d\n", MAX_LEVEL);
         return false;
     }
@@ -180,14 +199,6 @@ struct Arguments CreateArguments(int argc, const char** argv) {
     return arguments;
 }
 
-struct Stats CreateStats() {
-    struct Stats stats;
-    stats.unique_chars = 0;
-    stats.min_length = 0;
-    stats.average_length = 0;
-    stats.num_words = 0;
-    return stats;
-}
 
 unsigned StringLength(const char* string) {
     unsigned length = 0;
@@ -279,6 +290,9 @@ bool NRepeatingCharacters(const char* string, unsigned str_len, unsigned x) {
     if (str_len == 0) {
         return false;
     }
+    if (x == 1) { // ak je parameter 1, tak vsetky hesla, ktore maju dlzku > 0 nie su bezpecne
+        return true;
+    }
     unsigned longest_seq = 1; // najdlhsia sekvencia na zaciatku musi byt jedna, lebo kontrolujeme od drueho charakteru
     char current_char = string[0]; // aktualny charakter
     // iterujeme cez string na kontrolu kazdeho charakteru
@@ -290,18 +304,18 @@ bool NRepeatingCharacters(const char* string, unsigned str_len, unsigned x) {
             longest_seq = 1; // ak sa nerovna, resetujeme obidve premenne
             current_char = string[i];
         }
-        if (longest_seq == x) {
+        if (longest_seq >= x) {
             return true;
         }
     } 
     return false;
 }
 
-bool FirstRule(const char* password, unsigned password_len) {
+bool FirstRule(const char* password, unsigned password_len) { // heslo musi obsahovat aspon jedno male a aspon jedno velke pismeno
     return (ContainsUpperCase(password, password_len) && ContainsLowerCase(password, password_len));
 }
 
-bool SecondRule(const char* password, unsigned password_len, unsigned x) {
+bool SecondRule(const char* password, unsigned password_len, unsigned x) { // Heslo musi splnat aspon x podmienok specifikovanych v zadani 
     unsigned passed = 0;
     // skontrolujeme vsetky podmienky
     passed = ContainsUpperCase(password, password_len) + ContainsLowerCase(password, password_len) + ContainsDigit(password, password_len) + ContainsSpecialCharacter(password, password_len);
@@ -309,7 +323,7 @@ bool SecondRule(const char* password, unsigned password_len, unsigned x) {
     return passed >= x;
 }
 
-bool ThirdRule(const char* password, unsigned password_len, unsigned x) {
+bool ThirdRule(const char* password, unsigned password_len, unsigned x) { // heslo nesmie obsahovat sekvenciu opakujucich sa charakterov aspon dlzky x
     // returnujeme negaciu funkcie NRepeatingCharacters.. ak sa tam nachadza sekvencia x charakterov, tak heslo pravidlom nepreslo
     return (!NRepeatingCharacters(password, password_len, x));
 }
@@ -320,59 +334,93 @@ bool FourthRule(const char* password, unsigned password_len, unsigned x) {
 }
 */
 
+bool PasswordPassed(const char* password, unsigned password_length, unsigned level, unsigned param) {
+    bool passed = FirstRule(password, password_length);
 
-void Print(bool upper, bool lower, bool digit, bool special) {
-    printf("Upper case: %s\n", upper ? "True" : "False");
-    printf("Lower case: %s\n", lower ? "True" : "False");
-    printf("Digit: %s\n", digit ? "True" : "False");
-    printf("Special: %s\n", special ? "True" : "False");
+    if (level >= 2) {
+        passed = passed && SecondRule(password, password_length, param);
+    }
+    if (level >= 3) {
+        passed = passed && ThirdRule(password, password_length, param);
+    }
+    if (level == MAX_LEVEL) {
+        passed = passed && true;
+    }
+    return passed;
+}
+
+struct Stats CreateStats() {
+    struct Stats stats;
+    stats.min_length = 10000;
+    stats.num_words = 0;
+    stats.total_length = 0;
+    for(int i=0; i<NUM_ASCII_CHARACTERS; i++) {
+        stats.chars[i] = false;
+    }
+    return stats;
+}
+
+void UpdateStats(struct Stats* stats, const char* password, unsigned password_length) {
+    stats->num_words++;
+    stats->total_length += password_length;
+    stats->min_length = min(stats->min_length, password_length);
+    int index;
+    for(unsigned i=0; i<password_length; i++) {
+        index = password[i];
+        stats->chars[index] = true; 
+    }
+}
+
+void CountDistinctCharacters(struct Stats* stats) {
+    for(unsigned i=0; i<NUM_ASCII_CHARACTERS; i++) {
+        stats->distinct_chars += stats->chars[i];
+    }
+}
+
+void PrintStats(struct Stats stats) {
+    printf("Statistika:\n");
+    printf("Ruznych znaku: %d\n", stats.distinct_chars);
+    printf("Minimalni delka: %d\n", stats.min_length);
+    printf("Prumerna delka: %.2f\n", stats.average_length);
 }
 
 void CheckPasswordsWStats(struct Arguments arguments) {
     struct Stats stats = CreateStats();
-    printf("%d\n", stats.min_length);
 
-    char buffer[BUFFER_LENGTH];
-    unsigned password_length;
-    bool password_passed;
+    char buffer[BUFFER_LENGTH]; // buffer pre nacitavanie hesiel 
+    unsigned password_length;   // dlzka nacitaneho hesla
+    bool passed;       // premenna urcujuca ci heslo preslo danym poctom pravidiel
+    // pokial je na vstupe heslo, nacitame ho do buffera
     while(fgets(buffer, BUFFER_LENGTH, stdin)) {
-        password_length = StringLength(buffer); // dlzka hesla na vstupe
+        password_length = StringLength(buffer); 
         RemoveNewLine(buffer, password_length); // odstranime z hesla posledny charakter - '\n'
 
-        --password_length;
-
-        password_passed = FirstRule(buffer, password_length);
-
-        if (arguments.level >= 2) {
-            password_passed = password_passed && SecondRule(buffer, password_length, arguments.param);
-        }
-        if (arguments.level >= 3) {
-            password_passed = password_passed && ThirdRule(buffer, password_length, arguments.param);
-        }
-        if (password_passed) {
+        UpdateStats(&stats, buffer, --password_length); // updateneme statistiky s novym heslom
+        passed = PasswordPassed(buffer, password_length, arguments.level, arguments.param); // funkcia PasswordPassed nam povie ci heslo preslo pravidlami
+        if (passed) { // ak heslo preslo pravidlami, tak ho vypiseme
             printf("%s\n", buffer);
         }
     }
+    // aktualizujeme premiernu dlzku hesla 
+    stats.average_length = (double)stats.total_length / (double)stats.num_words;
+    CountDistinctCharacters(&stats);
+    
+    // na zaver vypiseme statistiku
+    PrintStats(stats);
 }
 
-void CheckPasswordsWOStats(struct Arguments arguments) {
-    char buffer[BUFFER_LENGTH];
-    unsigned password_length;
-    bool password_passed;
-    while(fgets(buffer, BUFFER_LENGTH, stdin)) {
-        password_length = StringLength(buffer); // dlzka hesla na vstupe
+void CheckPasswordsWOStats(struct Arguments arguments) {  
+    char buffer[BUFFER_LENGTH]; // buffer pre nacitavanie hesiel 
+    unsigned password_length;   // dlzka nacitaneho hesla
+    bool passed;                // premenna urcujuca ci heslo preslo danym poctom pravidiel
+
+    while(fgets(buffer, BUFFER_LENGTH, stdin)) { // nacitame heslo do buffera
+        password_length = StringLength(buffer); 
         RemoveNewLine(buffer, password_length); // odstranime z hesla posledny charakter - '\n'
-        password_length--; // dlzka hesla na vstupe
+        --password_length;
 
-        password_passed = FirstRule(buffer, password_length);
-
-        if (arguments.level >= 2) {
-            password_passed = password_passed && SecondRule(buffer, password_length, arguments.param);
-        }
-        if (arguments.level >= 3) {
-            password_passed = password_passed && ThirdRule(buffer, password_length, arguments.param);
-        }
-        if (password_passed) {
+        passed = PasswordPassed(buffer, password_length, arguments.level, arguments.param); // funkcia PasswordPassed nam povie ci heslo preslo pravidlami
+        if (passed) { // ak heslo preslo pravidlami, tak ho vypiseme
             printf("%s\n", buffer);
         }
     }

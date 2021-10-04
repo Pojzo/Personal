@@ -3,6 +3,9 @@ pwcheck: pwcheck.c
 
 test: ./tests/test.c
 	gcc -std=c99 -o ./tests/test ./tests/test.c
+	
+run: pwcheck.c
+	./pwcheck 2 2 --stats
 
 test1:
 	@./pwcheck 1 1 <example.txt >output.txt 
@@ -34,3 +37,7 @@ testall:
 
 clean:
 	@rm -f output.txt
+
+indent:
+	indent -linux pwcheck.c 
+
